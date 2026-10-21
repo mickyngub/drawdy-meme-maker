@@ -1,0 +1,24 @@
+@import "tailwindcss" source(none);
+@source "../webview";
+@source "../src/webview-shell.ts";
+
+@theme inline {
+    --color-background: var(--drawdy-background);
+    --color-foreground: var(--drawdy-foreground);
+    --color-surface: var(--drawdy-surface);
+    --color-surface2: var(--drawdy-surface2);
+    --color-muted-foreground: var(--drawdy-muted-foreground);
+    --color-primary: var(--drawdy-primary);
+    --color-primary-foreground: var(--drawdy-primary-foreground);
+    --color-accent: var(--drawdy-accent);
+    --color-accent-foreground: var(--drawdy-accent-foreground);
+    --color-border: var(--drawdy-border);
+    --color-input: var(--drawdy-input);
+    --color-ring: var(--drawdy-ring);
+    --color-destructive: var(--drawdy-destructive);
+    --color-success: var(--drawdy-success);
+    --color-warning: var(--drawdy-warning);
+    --radius-sm: var(--drawdy-radius-sm);
+    --radius-md: var(--drawdy-radius-md);
+    --radius-lg: var(--drawdy-radius-lg);
+}

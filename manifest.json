@@ -1,0 +1,9 @@
+{
+    "driverId": "mickyngub.meme-maker",
+    "driverName": "Meme Maker",
+    "driverVersion": "1.0.0",
+    "description": "Make memes right on the board. Pick one of imgflip's 100 most popular templates, search them by name, or upload your own picture. Type your captions, drag them into place, set their size, colour and alignment, then place the meme as an image. Select a meme later to change its captions and update it in place.",
+    "icon": "icon.png",
+    "main": "main.js",
+    "permissions": ["dom", "scene", "storage"]
+}
