@@ -95,6 +95,11 @@ export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
             case "command:kv-storage:set":
                 Object.assign(kv, cmd.req.payload);
                 return ok();
+            case "command:kv-storage:delete": {
+                const deleted = cmd.req.key in kv;
+                delete kv[cmd.req.key];
+                return ok({ deleted });
+            }
             case "command:scene:query-rect":
                 return ok({
                     drawdyElements: [...elements.values()]

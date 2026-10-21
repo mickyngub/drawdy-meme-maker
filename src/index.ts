@@ -6,16 +6,65 @@ import type {
     SubscribeableKey,
     SubscribedDrawdyElement,
 } from "@drawdy/driver-protocol";
-import type { DriverToWebview, WebviewToDriver } from "./shared/messages";
+import {
+    centredIn,
+    findFreeRect,
+    revealAndSelect,
+    visibleArea,
+    type Rect,
+} from "./lib/free-spot";
+import type {
+    DriverToWebview,
+    RenderedMeme,
+    WebviewToDriver,
+} from "./shared/messages";
+import {
+    UPLOAD_KEY,
+    normaliseSpec,
+    normaliseTemplateCache,
+    type MemeSpec,
+    type TemplateCache,
+} from "./shared/spec";
 import { WEBVIEW_HTML } from "./webview-html";
 
 // Drawdy shows this through <img>, where currentColor is black, so the colours are explicit.
 const ACTION_BUTTON_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs><rect x="1" y="1" width="22" height="22" rx="6" fill="url(#g)"/><rect x="5" y="5" width="14" height="2.8" rx="1.4" fill="#ffffff"/><rect x="7" y="16.2" width="10" height="2.8" rx="1.4" fill="#ffffff"/><circle cx="9.5" cy="12" r="1.2" fill="#ffffff"/><circle cx="14.5" cy="12" r="1.2" fill="#ffffff"/></svg>`;
 
 const SETTINGS_KV_KEY = "settings";
+const TEMPLATES_KV_KEY = "templates";
+const UPLOADS_KV_KEY = "uploads";
+const MAX_UPLOADS = 30;
+const MAX_SIDE_UNITS = 20000;
+const UPLOAD_DATA_URL = /^data:image\/(webp|png|jpeg);base64,/;
+
+const uploadKvKey = (key: string) => `upload:${key}`;
 
 export const NEEDS_PERMISSION =
     "Meme Maker needs permission to read the board. Reload the page and click Allow.";
+export const BOARD_FULL =
+    "The board is full: it holds at most 10,000 elements. Remove some, then try again.";
+
+const UPDATE_KEYS: SubscribeableKey[] = [
+    "x",
+    "y",
+    "width",
+    "height",
+    "rotation",
+    "opacity",
+    "layer",
+    "frameId",
+    "groupId",
+    "locked",
+];
+
+type EditTarget = { id: string };
+
+type Kept = {
+    frameId?: string;
+    groupId?: string;
+    layer?: number;
+    opacity?: number;
+};
 
 class PermissionDenied extends Error {}
 
@@ -25,6 +74,7 @@ let selectionToken = 0;
 let driver: {
     manifest: DriverManifest;
     issueCommand: DriverCommandIssuer;
+    generateId: () => string;
     styling: ModuleStyling;
     actionButtonId: string;
     webviewId: string;
@@ -33,6 +83,8 @@ let driver: {
     panelReady: boolean;
     started: boolean;
     settings: Record<string, unknown> | null;
+    templates: TemplateCache | null;
+    editing: EditTarget | null;
 } | null = null;
 
 let chain: Promise<void> = Promise.resolve();
@@ -82,6 +134,16 @@ function post(message: DriverToWebview): void {
     });
 }
 
+function placeCtx() {
+    const d = driver as NonNullable<typeof driver>;
+    return {
+        issueCommand: d.issueCommand,
+        driverId: d.manifest.driverId,
+        nextRequestId,
+        webviewDomId: d.webviewId,
+    };
+}
+
 function denied(res: { res: { error?: { type: string } } }): boolean {
     return res.res.error?.type === "unauthorized";
 }
@@ -96,14 +158,51 @@ async function history(step: "undo" | "redo"): Promise<void> {
     if (denied(res)) throw new PermissionDenied();
 }
 
+async function kvGet(key: string): Promise<unknown> {
+    if (!driver) return undefined;
+    const res = await driver.issueCommand({
+        type: "command:kv-storage:get",
+        driverId: driver.manifest.driverId,
+        requestId: nextRequestId(),
+        req: { key },
+    });
+    if (res.res.error !== undefined) return undefined;
+    return res.res.value?.got?.[key];
+}
+
+async function kvSet(
+    key: string,
+    value: Record<string, unknown>
+): Promise<void> {
+    if (!driver) return;
+    await driver.issueCommand({
+        type: "command:kv-storage:set",
+        driverId: driver.manifest.driverId,
+        requestId: nextRequestId(),
+        req: { key, payload: { [key]: value } },
+    });
+}
+
+async function kvDelete(key: string): Promise<void> {
+    if (!driver) return;
+    await driver.issueCommand({
+        type: "command:kv-storage:delete",
+        driverId: driver.manifest.driverId,
+        requestId: nextRequestId(),
+        req: { key },
+    });
+}
+
 export const activate: DriverModule["activate"] = async ({
     manifest,
     issueCommand,
     styling,
+    generateId,
 }) => {
     driver = {
         manifest,
         issueCommand,
+        generateId,
         styling,
         actionButtonId: `${manifest.driverId}:action-button`,
         webviewId: `${manifest.driverId}:webview`,
@@ -112,6 +211,8 @@ export const activate: DriverModule["activate"] = async ({
         panelReady: false,
         started: false,
         settings: null,
+        templates: null,
+        editing: null,
     };
     const { driverId } = manifest;
 
@@ -212,22 +313,15 @@ async function openWebview(): Promise<void> {
 async function start(): Promise<void> {
     if (!driver || driver.started) return;
     driver.started = true;
-    const { driverId } = driver.manifest;
-    const stored = await driver.issueCommand({
-        type: "command:kv-storage:get",
-        driverId,
-        requestId: nextRequestId(),
-        req: { key: SETTINGS_KV_KEY },
-    });
-    if (driver && stored.res.error === undefined) {
-        const restored = stored.res.value?.got?.[SETTINGS_KV_KEY];
-        if (restored && typeof restored === "object") {
-            driver.settings = restored as Record<string, unknown>;
-        }
+    const settings = await kvGet(SETTINGS_KV_KEY);
+    if (driver && settings && typeof settings === "object") {
+        driver.settings = settings as Record<string, unknown>;
     }
+    const templates = normaliseTemplateCache(await kvGet(TEMPLATES_KV_KEY));
+    if (driver && templates) driver.templates = templates;
     await driver?.issueCommand({
         type: "subscription:scene:drawdy-element-selection",
-        driverId,
+        driverId: driver.manifest.driverId,
         requestId: nextRequestId(),
     });
 }
@@ -239,22 +333,64 @@ async function onReady(): Promise<void> {
     await start();
     if (!driver) return;
     post({ type: "theme", cssVars: stylingCssVars(driver.styling) });
-    post({ type: "init", settings: driver.settings ?? undefined });
+    post({
+        type: "init",
+        settings: driver.settings ?? undefined,
+        templates: driver.templates,
+    });
     await refreshSelection();
 }
 
 async function saveSettings(settings: Record<string, unknown>): Promise<void> {
     if (!driver) return;
     driver.settings = settings;
-    await driver.issueCommand({
-        type: "command:kv-storage:set",
-        driverId: driver.manifest.driverId,
-        requestId: nextRequestId(),
-        req: {
-            key: SETTINGS_KV_KEY,
-            payload: { [SETTINGS_KV_KEY]: settings },
-        },
-    });
+    await kvSet(SETTINGS_KV_KEY, settings);
+}
+
+async function cacheTemplates(raw: unknown): Promise<void> {
+    const templates = normaliseTemplateCache(raw);
+    if (!driver || !templates) return;
+    driver.templates = templates;
+    await kvSet(TEMPLATES_KV_KEY, templates);
+}
+
+async function uploadKeys(): Promise<string[]> {
+    const got = await kvGet(UPLOADS_KV_KEY);
+    const keys =
+        typeof got === "object" && got !== null
+            ? (got as Record<string, unknown>).keys
+            : undefined;
+    return Array.isArray(keys)
+        ? keys.filter((key): key is string => typeof key === "string")
+        : [];
+}
+
+async function storeUpload(key: unknown, dataUrl: unknown): Promise<void> {
+    if (
+        typeof key !== "string" ||
+        !UPLOAD_KEY.test(key) ||
+        typeof dataUrl !== "string" ||
+        !UPLOAD_DATA_URL.test(dataUrl)
+    ) {
+        return;
+    }
+    await kvSet(uploadKvKey(key), { dataUrl });
+    const keys = (await uploadKeys()).filter((k) => k !== key);
+    keys.push(key);
+    const evicted = keys.splice(0, Math.max(0, keys.length - MAX_UPLOADS));
+    for (const old of evicted) await kvDelete(uploadKvKey(old));
+    await kvSet(UPLOADS_KV_KEY, { keys });
+}
+
+async function storedUpload(key: string): Promise<string | null> {
+    const got = await kvGet(uploadKvKey(key));
+    const dataUrl =
+        typeof got === "object" && got !== null
+            ? (got as Record<string, unknown>).dataUrl
+            : undefined;
+    return typeof dataUrl === "string" && UPLOAD_DATA_URL.test(dataUrl)
+        ? dataUrl
+        : null;
 }
 
 async function handleWebviewMessage(message: WebviewToDriver): Promise<void> {
@@ -268,6 +404,32 @@ async function handleWebviewMessage(message: WebviewToDriver): Promise<void> {
             const settings = message.settings;
             if (typeof settings !== "object" || settings === null) return;
             await enqueue(() => saveSettings(settings));
+            return;
+        }
+        case "cache-templates": {
+            const { fetchedAt, memes } = message;
+            await enqueue(() => cacheTemplates({ fetchedAt, memes }));
+            return;
+        }
+        case "store-upload": {
+            const { key, dataUrl } = message;
+            await enqueue(() => storeUpload(key, dataUrl));
+            return;
+        }
+        case "place": {
+            await enqueue(() => place(message));
+            return;
+        }
+        case "update": {
+            await enqueue(() => update(message));
+            return;
+        }
+        case "edit-selected": {
+            await enqueue(loadSelected);
+            return;
+        }
+        case "stop-edit": {
+            driver.editing = null;
             return;
         }
         case "undo":
@@ -337,4 +499,236 @@ async function refreshSelection(ids?: string[]): Promise<void> {
     );
     if (!driver || token !== selectionToken) return;
     post({ type: "selection", editable });
+}
+
+async function loadSelected(): Promise<void> {
+    if (!driver) return;
+    const memes = (
+        await readElements(await selectedIds(), ["type", "meta"])
+    ).filter(isMeme);
+    if (!driver) return;
+    if (memes.length !== 1) {
+        post({
+            type: "error",
+            message:
+                memes.length === 0
+                    ? "Select a meme made with Meme Maker first."
+                    : "More than one meme is selected. Select just one.",
+        });
+        return;
+    }
+    const spec = normaliseSpec(ownMeta(memes[0].meta)?.spec);
+    if (!spec) {
+        post({
+            type: "error",
+            message: "That meme's saved captions could not be read.",
+        });
+        return;
+    }
+    const uploadDataUrl =
+        spec.source.kind === "upload"
+            ? await storedUpload(spec.source.key)
+            : null;
+    if (!driver) return;
+    driver.editing = { id: memes[0].id };
+    post({ type: "load", spec, uploadDataUrl });
+}
+
+function readMeme(message: RenderedMeme): {
+    spec: MemeSpec;
+    ratio: number;
+} | null {
+    const spec = normaliseSpec(message.spec);
+    const sizeOk = (n: unknown) =>
+        typeof n === "number" && n > 0 && n <= MAX_SIDE_UNITS;
+    if (
+        !spec ||
+        typeof message.dataUrl !== "string" ||
+        !/^data:image\/(webp|png);base64,/.test(message.dataUrl) ||
+        !sizeOk(message.pixelWidth) ||
+        !sizeOk(message.pixelHeight) ||
+        !sizeOk(message.width) ||
+        !sizeOk(message.height)
+    ) {
+        post({ type: "error", message: "That meme could not be read." });
+        return null;
+    }
+    return { spec, ratio: message.pixelHeight / message.pixelWidth };
+}
+
+async function preferredRect(width: number, height: number): Promise<Rect> {
+    const area = await visibleArea(placeCtx());
+    const rect = area
+        ? centredIn(area, width, height)
+        : { x: 0, y: 0, width, height };
+    return { ...rect, x: Math.round(rect.x), y: Math.round(rect.y) };
+}
+
+type Added = { id: string } | { error: string };
+
+async function addMeme(
+    message: RenderedMeme,
+    spec: MemeSpec,
+    rect: Rect,
+    keep: Kept
+): Promise<Added> {
+    if (!driver) return { error: "" };
+    const drawdyElementId = driver.generateId();
+    const added = await driver.issueCommand({
+        type: "command:scene:add-drawdy-elements",
+        driverId: driver.manifest.driverId,
+        requestId: nextRequestId(),
+        req: {
+            elements: [
+                {
+                    type: "image",
+                    drawdyElementId,
+                    url: message.dataUrl,
+                    ...rect,
+                    ...keep,
+                    meta: { [driver.manifest.driverId]: { v: 1, spec } },
+                },
+            ],
+        },
+    });
+    if (denied(added)) throw new PermissionDenied();
+    if (added.res.error !== undefined) {
+        return { error: added.res.error.message ?? "" };
+    }
+    // Over its element limit the board adds nothing but still answers success.
+    const back = await driver.issueCommand({
+        type: "command:scene:element-rects",
+        driverId: driver.manifest.driverId,
+        requestId: nextRequestId(),
+        req: { drawdyElementIds: [drawdyElementId] },
+    });
+    if (back.res.error === undefined && back.res.value.rects.length === 0) {
+        return { error: BOARD_FULL };
+    }
+    return { id: drawdyElementId };
+}
+
+async function place(message: RenderedMeme): Promise<void> {
+    const meme = readMeme(message);
+    if (!driver || !meme) return;
+    const preferred = await preferredRect(
+        message.width,
+        message.width * meme.ratio
+    );
+    const rect = await findFreeRect(placeCtx(), preferred);
+    const added = await addMeme(message, meme.spec, rect, {});
+    if (!driver) return;
+    if ("error" in added) {
+        post({
+            type: "error",
+            message:
+                added.error === BOARD_FULL
+                    ? BOARD_FULL
+                    : "The board rejected that meme.",
+        });
+        return;
+    }
+    await revealAndSelect(placeCtx(), [added.id], rect);
+    post({ type: "placed", mode: "new" });
+    await refreshSelection();
+}
+
+export function keptProperties(old: SubscribedDrawdyElement): Kept {
+    const keep: Kept = {};
+    if (typeof old.frameId === "string") keep.frameId = old.frameId;
+    if (typeof old.groupId === "string") keep.groupId = old.groupId;
+    if (typeof old.layer === "number") keep.layer = old.layer;
+    if (typeof old.opacity === "number") keep.opacity = old.opacity;
+    return keep;
+}
+
+async function update(message: RenderedMeme): Promise<void> {
+    const meme = readMeme(message);
+    if (!driver || !meme) return;
+    const editing = driver.editing;
+    if (!editing) {
+        post({
+            type: "error",
+            message:
+                "Select a meme on the board and click Edit selected first.",
+        });
+        return;
+    }
+    const [old] = await readElements([editing.id], UPDATE_KEYS);
+    if (!driver) return;
+    if (
+        typeof old?.x !== "number" ||
+        typeof old.y !== "number" ||
+        typeof old.width !== "number" ||
+        !(old.width > 0)
+    ) {
+        driver.editing = null;
+        post({ type: "edit-ended" });
+        post({
+            type: "error",
+            message:
+                "The meme you were editing is no longer on the board. Place it as a new meme.",
+        });
+        return;
+    }
+    const removed = await driver.issueCommand({
+        type: "command:scene:remove-drawdy-elements",
+        driverId: driver.manifest.driverId,
+        requestId: nextRequestId(),
+        req: { drawdyElementIds: [editing.id] },
+    });
+    if (denied(removed)) throw new PermissionDenied();
+    if (removed.res.error !== undefined) {
+        post({
+            type: "error",
+            message: "The board would not replace that meme.",
+        });
+        return;
+    }
+    // Same top-left and width as the old meme, so one resized on the board keeps its size.
+    const rect = {
+        x: old.x,
+        y: old.y,
+        width: old.width,
+        height: old.width * meme.ratio,
+    };
+    const added = await addMeme(message, meme.spec, rect, keptProperties(old));
+    if (!driver) return;
+    if ("error" in added) {
+        await history("undo");
+        post({
+            type: "error",
+            message:
+                added.error === BOARD_FULL
+                    ? BOARD_FULL
+                    : "The board rejected the updated meme, so the old one is back.",
+        });
+        return;
+    }
+    let undoSteps = 2;
+    if (old.locked === true) {
+        const locked = await driver.issueCommand({
+            type: "command:scene:update-drawdy-elements",
+            driverId: driver.manifest.driverId,
+            requestId: nextRequestId(),
+            req: {
+                updates: [
+                    {
+                        drawdyElementId: added.id,
+                        properties: { locked: true },
+                    },
+                ],
+            },
+        });
+        if (locked.res.error === undefined) undoSteps = 3;
+    }
+    driver.editing = { id: added.id };
+    await revealAndSelect(placeCtx(), [added.id], rect);
+    post({
+        type: "placed",
+        mode: "update",
+        undoSteps,
+        rotationReset: typeof old.rotation === "number" && old.rotation !== 0,
+    });
+    await refreshSelection();
 }

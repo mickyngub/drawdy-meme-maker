@@ -1,4 +1,4 @@
-const FOCUS =
+export const FOCUS =
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary";
 const LABEL = "text-[10px] tracking-[0.02em] text-muted-foreground";
 const INPUT =
@@ -75,7 +75,7 @@ export function makeSlider(
     input.step = String(spec.step);
     input.setAttribute("aria-label", spec.label);
     const show = (v: number) => {
-        value.textContent = `${v} ${spec.unit}`;
+        value.textContent = spec.unit ? `${v} ${spec.unit}` : String(v);
     };
     input.value = String(initial);
     show(initial);

@@ -21,12 +21,13 @@ export function encodeImage(
     width: number,
     height: number,
     transparent: boolean,
-    draw: (canvas: HTMLCanvasElement, scale: number) => void
+    draw: (canvas: HTMLCanvasElement, scale: number) => void,
+    startScale = exportScale(width, height)
 ): EncodedImage {
     const canvas = document.createElement("canvas");
     const type = transparent ? "image/png" : "image/webp";
     const qualities = transparent ? [undefined] : [0.92, 0.8, 0.7];
-    let scale = exportScale(width, height);
+    let scale = startScale;
     let last: EncodedImage | null = null;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         canvas.width = Math.max(1, Math.round(width * scale));
