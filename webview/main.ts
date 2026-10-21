@@ -450,14 +450,14 @@ function buildBoxControl(i: number): void {
     const n = i + 1;
     const card = el(
         "div",
-        "flex flex-none flex-col gap-1.5 rounded-md border border-border p-1.5",
+        "flex flex-none flex-col gap-1 rounded-md border border-border p-1",
         boxList
     );
     card.setAttribute("role", "group");
     card.setAttribute("aria-label", `Caption ${n}`);
     const text = el(
         "textarea",
-        "min-h-11 w-full resize-none rounded-sm border border-border bg-background px-1.5 py-1 text-xs focus:border-primary focus:outline-none",
+        "h-8.5 w-full resize-none rounded-sm border border-border bg-background px-1.5 py-0.5 text-[11px]/[14px] focus:border-primary focus:outline-none",
         card
     );
     text.rows = 2;
@@ -469,7 +469,7 @@ function buildBoxControl(i: number): void {
     text.addEventListener("focus", () => setActive(i));
     text.addEventListener("blur", () => setActive(-1));
 
-    const row = el("div", "flex items-center gap-1.5", card);
+    const row = el("div", "flex h-7 items-center gap-1.5", card);
     const size = el(
         "input",
         `h-6 min-w-0 flex-1 cursor-pointer accent-primary ${FOCUS}`,

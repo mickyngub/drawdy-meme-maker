@@ -45,7 +45,7 @@ const BODY = `
             </div>
         </div>
     </div>
-    <div id="boxes" class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-2"></div>
+    <div id="boxes" class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-1"></div>
     <div class="flex flex-none justify-start px-3 pb-2">
         <button type="button" id="add-box" class="${SMALL_BTN} disabled:cursor-default disabled:opacity-40">Add caption</button>
     </div>
