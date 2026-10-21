@@ -1,5 +1,6 @@
 import type { DriverToWebview, WebviewToDriver } from "../src/shared/messages";
 import {
+    ALIGNS,
     BLACK,
     BOX_SIZE,
     MAX_BOXES,
@@ -11,7 +12,6 @@ import {
     defaultBoxes,
     templateSource,
     type Align,
-    type Ink,
     type MemeBox,
     type MemeSource,
     type MemeSpec,
@@ -24,7 +24,7 @@ import { loadImage, readUpload } from "./images";
 import { isField, keyAction } from "./lib/keys";
 import { layoutBox, renderMeme, renderSize } from "./render";
 import { fetchTemplates, matchesSearch } from "./templates";
-import { FOCUS, button, el, makeSegmentedField, makeSlider } from "./ui";
+import { FOCUS, button, el } from "./ui";
 
 type DrawdyWebviewApi = {
     postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -44,6 +44,18 @@ const MISSING_TEMPLATE =
     "The template's picture didn't load. Drop, paste or choose a picture to keep editing.";
 
 const TILE = `flex min-w-0 cursor-pointer flex-col items-center gap-1 rounded-md border border-border p-1 hover:enabled:border-foreground disabled:cursor-default disabled:opacity-60 ${FOCUS}`;
+const ICON_BUTTON =
+    "grid size-6 flex-none cursor-pointer place-items-center rounded-sm text-muted-foreground disabled:cursor-default disabled:opacity-40";
+const ALIGN_NAMES: Record<Align, string> = {
+    left: "left",
+    center: "centre",
+    right: "right",
+};
+const ALIGN_ICONS: Record<Align, string> = {
+    left: "M1 2.5h10M1 6h6M1 9.5h8",
+    center: "M1 2.5h10M3 6h6M2 9.5h8",
+    right: "M1 2.5h10M5 6h6M3 9.5h8",
+};
 const OVERLAY =
     "absolute top-(--y) left-(--x) h-(--h) w-(--w) cursor-move touch-none rounded-[2px] border border-dashed border-white/90 outline outline-black/50 data-[active=true]:border-solid data-[active=true]:border-primary focus-visible:outline-2 focus-visible:outline-primary";
 
@@ -51,7 +63,6 @@ const api = acquireDrawdyApi();
 const byId = <T extends HTMLElement>(id: string) =>
     document.getElementById(id) as T;
 
-const closeButton = byId<HTMLButtonElement>("close");
 const banner = byId<HTMLDivElement>("edit-banner");
 const stopEditButton = byId<HTMLButtonElement>("stop-edit");
 const fileInput = byId<HTMLInputElement>("file");
@@ -79,6 +90,7 @@ const statusLine = byId<HTMLDivElement>("status");
 const editSelectedButton = byId<HTMLButtonElement>("edit-selected");
 const placeButton = byId<HTMLButtonElement>("place");
 const updateButton = byId<HTMLButtonElement>("update");
+const actions = byId<HTMLDivElement>("actions");
 
 type Tile = { template: Template; node: HTMLButtonElement };
 
@@ -122,7 +134,9 @@ function updateChrome(): void {
     const ready = image !== null && !missingPicture;
     placeButton.disabled = !ready || busy;
     updateButton.disabled = !ready || busy;
-    placeButton.textContent = editing ? "Place as new" : "Place on board";
+    editSelectedButton.textContent = editing ? "Edit" : "Edit selected";
+    placeButton.textContent = editing ? "Place new" : "Place on board";
+    actions.dataset.editing = String(editing);
     placeButton.dataset.variant = editing ? "" : "primary";
     updateButton.hidden = !editing;
     banner.hidden = !editing;
@@ -344,9 +358,7 @@ async function loadFromBoard(
     if (img) {
         if (spec.source.kind === "upload") storedUploads.add(spec.source.key);
         useSource(spec.source, img, dataUrl, nextBoxes);
-        setStatus(
-            "Loaded the selected meme. Change it, then click Update on board."
-        );
+        setStatus("Loaded the selected meme. Change it, then click Update.");
         return;
     }
     source = spec.source;
@@ -438,67 +450,103 @@ function buildBoxControl(i: number): void {
     const n = i + 1;
     const card = el(
         "div",
-        "flex flex-none flex-col gap-1.5 rounded-md border border-border p-2",
+        "flex flex-none flex-col gap-1.5 rounded-md border border-border p-1.5",
         boxList
     );
     card.setAttribute("role", "group");
     card.setAttribute("aria-label", `Caption ${n}`);
-    const head = el("div", "flex items-center justify-between gap-2", card);
-    el(
-        "span",
-        "text-[10px] font-medium tracking-[0.02em] text-muted-foreground",
-        head
-    ).textContent = `Caption ${n}`;
-    const remove = button(
-        head,
-        "cursor-pointer rounded-sm px-1 py-px text-[10px] text-muted-foreground hover:enabled:text-destructive disabled:cursor-default disabled:opacity-40",
-        "Remove",
-        () => removeBox(i),
-        `Remove caption ${n}`
-    );
-    remove.disabled = boxes.length <= 1;
     const text = el(
         "textarea",
-        `min-h-11 w-full resize-none rounded-sm border border-border bg-background px-1.5 py-1 text-xs focus:border-primary focus:outline-none`,
+        "min-h-11 w-full resize-none rounded-sm border border-border bg-background px-1.5 py-1 text-xs focus:border-primary focus:outline-none",
         card
     );
     text.rows = 2;
     text.maxLength = MAX_TEXT_LENGTH;
-    text.placeholder = "Type a caption";
+    text.placeholder = `Caption ${n}`;
     text.value = box.text;
     text.setAttribute("aria-label", `Caption ${n} text`);
     text.addEventListener("input", () => setBox(i, { text: text.value }));
     text.addEventListener("focus", () => setActive(i));
     text.addEventListener("blur", () => setActive(-1));
-    makeSlider(
-        card,
-        { label: "Size", ...BOX_SIZE, step: 1, unit: "" },
-        box.size,
-        (size) => setBox(i, { size })
+
+    const row = el("div", "flex items-center gap-1.5", card);
+    const size = el(
+        "input",
+        `h-6 min-w-0 flex-1 cursor-pointer accent-primary ${FOCUS}`,
+        row
     );
-    const row = el("div", "grid grid-cols-[auto_1fr] gap-2", card);
-    makeSegmentedField<Ink>(
+    size.type = "range";
+    size.min = String(BOX_SIZE.min);
+    size.max = String(BOX_SIZE.max);
+    size.step = "1";
+    size.value = String(box.size);
+    size.title = "Size";
+    size.setAttribute("aria-label", `Caption ${n} size`);
+    const sizeValue = el(
+        "span",
+        "w-6 flex-none text-right text-[10px] text-muted-foreground tabular-nums",
+        row
+    );
+    sizeValue.textContent = String(box.size);
+    size.addEventListener("input", () => {
+        sizeValue.textContent = size.value;
+        setBox(i, { size: Number(size.value) });
+    });
+
+    const ink = button(
         row,
-        "Colour",
-        [
-            [WHITE, "White"],
-            [BLACK, "Black"],
-        ],
-        box.color,
-        (color) =>
-            setBox(i, { color, outline: color === WHITE ? BLACK : WHITE })
+        "grid size-6 flex-none cursor-pointer place-items-center rounded-sm border border-border bg-black text-xs font-bold text-white data-[ink=black]:bg-white data-[ink=black]:text-black",
+        "A",
+        () => {
+            const color = boxes[i]?.color === WHITE ? BLACK : WHITE;
+            setBox(i, { color, outline: color === WHITE ? BLACK : WHITE });
+            paintInk();
+        },
+        `Caption ${n} in black`
     );
-    makeSegmentedField<Align>(
+    ink.title = "Swap white and black";
+    const paintInk = () => {
+        const black = boxes[i]?.color === BLACK;
+        ink.dataset.ink = black ? "black" : "white";
+        ink.setAttribute("aria-pressed", String(black));
+    };
+    paintInk();
+
+    const alignGroup = el("div", "flex flex-none", row);
+    alignGroup.setAttribute("role", "group");
+    alignGroup.setAttribute("aria-label", `Caption ${n} alignment`);
+    const alignButtons = ALIGNS.map((value) => {
+        const node = button(
+            alignGroup,
+            `${ICON_BUTTON} not-aria-pressed:hover:text-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground`,
+            "",
+            () => {
+                setBox(i, { align: value });
+                paintAlign();
+            },
+            `Align ${ALIGN_NAMES[value]}`
+        );
+        node.innerHTML = `<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="${ALIGN_ICONS[value]}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+        return { value, node };
+    });
+    const paintAlign = () => {
+        for (const { value, node } of alignButtons) {
+            node.setAttribute(
+                "aria-pressed",
+                String(boxes[i]?.align === value)
+            );
+        }
+    };
+    paintAlign();
+
+    const remove = button(
         row,
-        "Align",
-        [
-            ["left", "Left"],
-            ["center", "Centre"],
-            ["right", "Right"],
-        ],
-        box.align,
-        (align) => setBox(i, { align })
+        `${ICON_BUTTON} text-sm hover:enabled:text-destructive`,
+        "×",
+        () => removeBox(i),
+        `Remove caption ${n}`
     );
+    remove.disabled = boxes.length <= 1;
 }
 
 function buildBoxControls(): void {
@@ -629,7 +677,6 @@ function imageFile(files: FileList | undefined | null): File | null {
 }
 
 function wire(): void {
-    closeButton.addEventListener("click", () => send({ type: "close" }));
     uploadButton.addEventListener("click", () => fileInput.click());
     chooseAgainButton.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", () => {
