@@ -2,7 +2,7 @@
     "driverId": "mickyngub.meme-maker",
     "driverName": "Meme Maker",
     "driverVersion": "1.0.0",
-    "description": "Make memes right on the board. Pick one of imgflip's 100 most popular templates, search them by name, or upload, drop or paste your own picture. Type up to six captions in bold outlined Anton capitals, drag them into place, and set each one's size, white or black colour and alignment. The meme lands beside what's already on the board. Select it later to change the captions or the picture and update it in place.",
+    "description": "Say it with a meme. Search imgflip's 100 most popular templates or upload, drop or paste your own picture, type your captions, drag them into place and click Place on board. Give each caption its own size, white or black lettering and alignment, up to six per meme. Select a placed meme and click Edit selected to change it in place. Made for retros, lessons, slides and team boards.",
     "icon": "icon.png",
     "main": "main.js",
     "permissions": ["dom", "scene", "storage"]

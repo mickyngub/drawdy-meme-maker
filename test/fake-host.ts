@@ -160,7 +160,8 @@ export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
                                 id: el.drawdyElementId,
                             };
                             for (const key of cmd.req.properties) {
-                                if (key === "points") picked.points = pointsOf(el);
+                                if (key === "points")
+                                    picked.points = pointsOf(el);
                                 else if (key in el) picked[key] = el[key];
                             }
                             return picked;

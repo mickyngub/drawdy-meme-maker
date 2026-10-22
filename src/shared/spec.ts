@@ -13,7 +13,7 @@ export type Ink = typeof WHITE | typeof BLACK;
 const INKS: readonly Ink[] = [WHITE, BLACK];
 
 export const ALIGNS = ["left", "center", "right"] as const;
-export type Align = typeof ALIGNS[number];
+export type Align = (typeof ALIGNS)[number];
 
 export type MemeSource =
     | {
@@ -82,8 +82,8 @@ export function defaultBoxes(boxCount: number): MemeBox[] {
         n === 1
             ? [0.8]
             : n === 2
-            ? [0.04, 0.8]
-            : Array.from({ length: n }, (_, i) => 0.05 + (i * 0.9) / n);
+              ? [0.04, 0.8]
+              : Array.from({ length: n }, (_, i) => 0.05 + (i * 0.9) / n);
     return ys.map((y) => ({ ...BOX, y }));
 }
 

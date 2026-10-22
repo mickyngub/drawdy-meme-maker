@@ -100,8 +100,8 @@ export function renderMeme(
             box.align === "left"
                 ? layout.x
                 : box.align === "right"
-                ? layout.x + layout.width
-                : layout.x + layout.width / 2;
+                  ? layout.x + layout.width
+                  : layout.x + layout.width / 2;
         const top = (i: number) =>
             layout.y +
             i * layout.lineHeight +
