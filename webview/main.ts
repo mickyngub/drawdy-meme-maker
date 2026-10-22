@@ -21,10 +21,11 @@ import {
 import { encodeImage } from "./export";
 import { loadMemeFont, memeFontFailed } from "./fonts";
 import { loadImage, readUpload } from "./images";
+import { ICONS, icon } from "./lib/icons";
 import { isField, keyAction } from "./lib/keys";
 import { layoutBox, renderMeme, renderSize } from "./render";
 import { fetchTemplates, matchesSearch } from "./templates";
-import { FOCUS, button, el } from "./ui";
+import { FOCUS, SLIDER, button, el, paintFill } from "./ui";
 
 type DrawdyWebviewApi = {
     postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -43,21 +44,29 @@ const MISSING_UPLOAD =
 const MISSING_TEMPLATE =
     "The template's picture didn't load. Drop, paste or choose a picture to keep editing.";
 
-const TILE = `flex min-w-0 cursor-pointer flex-col items-center gap-1 rounded-md border border-border p-1 hover:enabled:border-foreground disabled:cursor-default disabled:opacity-60 ${FOCUS}`;
+const TILE = `group flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-lg text-left disabled:cursor-default disabled:opacity-50 ${FOCUS}`;
 const ICON_BUTTON =
-    "grid size-6 flex-none cursor-pointer place-items-center rounded-sm text-muted-foreground disabled:cursor-default disabled:opacity-40";
+    "inline-grid size-7.5 flex-none cursor-pointer place-items-center rounded-lg text-fg-muted transition-colors enabled:hover:bg-hover enabled:hover:text-fg enabled:active:bg-pressed disabled:cursor-not-allowed disabled:text-fg-disabled";
+const SEGMENT =
+    "grid w-7 cursor-pointer place-items-center rounded-md text-fg-subtle transition-colors hover:text-fg aria-pressed:bg-control aria-pressed:text-fg";
+const SWATCH =
+    "size-6 flex-none cursor-pointer rounded-full ring-1 ring-line-strong ring-inset aria-pressed:outline-2 aria-pressed:outline-offset-2 aria-pressed:outline-fg";
 const ALIGN_NAMES: Record<Align, string> = {
     left: "left",
     center: "centre",
     right: "right",
 };
 const ALIGN_ICONS: Record<Align, string> = {
-    left: "M1 2.5h10M1 6h6M1 9.5h8",
-    center: "M1 2.5h10M3 6h6M2 9.5h8",
-    right: "M1 2.5h10M5 6h6M3 9.5h8",
+    left: ICONS.alignLeft,
+    center: ICONS.alignCenter,
+    right: ICONS.alignRight,
 };
+const INKS = [
+    [WHITE, "white", "bg-white"],
+    [BLACK, "black", "bg-black"],
+] as const;
 const OVERLAY =
-    "absolute top-(--y) left-(--x) h-(--h) w-(--w) cursor-move touch-none rounded-[2px] border border-dashed border-white/90 outline outline-black/50 data-[active=true]:border-solid data-[active=true]:border-primary focus-visible:outline-2 focus-visible:outline-primary";
+    "absolute top-(--y) left-(--x) h-(--h) w-(--w) cursor-move touch-none rounded-sm border border-dashed border-white/90 outline outline-black/50 data-[active=true]:border-solid data-[active=true]:border-accent focus-visible:outline-2 focus-visible:outline-ring";
 
 const api = acquireDrawdyApi();
 const byId = <T extends HTMLElement>(id: string) =>
@@ -203,7 +212,7 @@ function showTemplates(cache: TemplateCache): void {
         node.title = template.name;
         const thumb = el(
             "img",
-            "aspect-square w-full rounded-sm bg-surface2 object-cover",
+            "aspect-square w-full rounded-lg bg-section object-cover transition-opacity group-hover:opacity-80",
             node
         );
         thumb.alt = "";
@@ -217,7 +226,7 @@ function showTemplates(cache: TemplateCache): void {
         thumb.src = template.url;
         el(
             "span",
-            "w-full truncate text-center text-[10px]",
+            "w-full truncate text-caption text-fg-muted transition-colors group-hover:text-fg",
             node
         ).textContent = template.name;
         node.addEventListener("click", () => void pickTemplate(template));
@@ -448,16 +457,12 @@ function buildOverlay(i: number): void {
 function buildBoxControl(i: number): void {
     const box = boxes[i];
     const n = i + 1;
-    const card = el(
-        "div",
-        "flex flex-none flex-col gap-1 rounded-md border border-border p-1",
-        boxList
-    );
+    const card = el("div", "flex flex-none flex-col gap-2", boxList);
     card.setAttribute("role", "group");
     card.setAttribute("aria-label", `Caption ${n}`);
     const text = el(
         "textarea",
-        "h-8.5 w-full resize-none rounded-sm border border-border bg-background px-1.5 py-0.5 text-[11px]/[14px] focus:border-primary focus:outline-none",
+        "h-14.5 w-full resize-none rounded-xl border border-line bg-subtle px-3 py-2 text-[13px] leading-5 text-fg placeholder:text-fg-disabled transition-colors hover:bg-hover focus:border-line-strong focus:bg-active focus:outline-none focus:ring-1 focus:ring-ring",
         card
     );
     text.rows = 2;
@@ -469,12 +474,8 @@ function buildBoxControl(i: number): void {
     text.addEventListener("focus", () => setActive(i));
     text.addEventListener("blur", () => setActive(-1));
 
-    const row = el("div", "flex h-7 items-center gap-1.5", card);
-    const size = el(
-        "input",
-        `h-6 min-w-0 flex-1 cursor-pointer accent-primary ${FOCUS}`,
-        row
-    );
+    const row = el("div", "flex h-8 items-center gap-1.5", card);
+    const size = el("input", `${SLIDER} min-w-0 flex-1 ${FOCUS}`, row);
     size.type = "range";
     size.min = String(BOX_SIZE.min);
     size.max = String(BOX_SIZE.max);
@@ -482,43 +483,56 @@ function buildBoxControl(i: number): void {
     size.value = String(box.size);
     size.title = "Size";
     size.setAttribute("aria-label", `Caption ${n} size`);
+    paintFill(size);
     const sizeValue = el(
         "span",
-        "w-6 flex-none text-right text-[10px] text-muted-foreground tabular-nums",
+        "w-6 flex-none text-right text-fg-subtle tabular-nums",
         row
     );
     sizeValue.textContent = String(box.size);
     size.addEventListener("input", () => {
         sizeValue.textContent = size.value;
+        paintFill(size);
         setBox(i, { size: Number(size.value) });
     });
 
-    const ink = button(
-        row,
-        "grid size-6 flex-none cursor-pointer place-items-center rounded-sm border border-border bg-black text-xs font-bold text-white data-[ink=black]:bg-white data-[ink=black]:text-black",
-        "A",
-        () => {
-            const color = boxes[i]?.color === WHITE ? BLACK : WHITE;
-            setBox(i, { color, outline: color === WHITE ? BLACK : WHITE });
-            paintInk();
-        },
-        `Caption ${n} in black`
-    );
-    ink.title = "Swap white and black";
+    const inkGroup = el("div", "flex flex-none items-center gap-2", row);
+    inkGroup.setAttribute("role", "group");
+    inkGroup.setAttribute("aria-label", `Caption ${n} colour`);
+    const inkButtons = INKS.map(([color, name, fill]) => {
+        const node = button(
+            inkGroup,
+            `${SWATCH} ${fill}`,
+            "",
+            () => {
+                setBox(i, { color, outline: color === WHITE ? BLACK : WHITE });
+                paintInk();
+            },
+            `Caption ${n} in ${name}`
+        );
+        return { color, node };
+    });
     const paintInk = () => {
-        const black = boxes[i]?.color === BLACK;
-        ink.dataset.ink = black ? "black" : "white";
-        ink.setAttribute("aria-pressed", String(black));
+        for (const { color, node } of inkButtons) {
+            node.setAttribute(
+                "aria-pressed",
+                String(boxes[i]?.color === color)
+            );
+        }
     };
     paintInk();
 
-    const alignGroup = el("div", "flex flex-none", row);
+    const alignGroup = el(
+        "div",
+        "flex h-8 flex-none gap-0.5 rounded-lg bg-control-subtle p-0.5",
+        row
+    );
     alignGroup.setAttribute("role", "group");
     alignGroup.setAttribute("aria-label", `Caption ${n} alignment`);
     const alignButtons = ALIGNS.map((value) => {
         const node = button(
             alignGroup,
-            `${ICON_BUTTON} not-aria-pressed:hover:text-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground`,
+            SEGMENT,
             "",
             () => {
                 setBox(i, { align: value });
@@ -526,7 +540,7 @@ function buildBoxControl(i: number): void {
             },
             `Align ${ALIGN_NAMES[value]}`
         );
-        node.innerHTML = `<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="${ALIGN_ICONS[value]}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+        node.innerHTML = icon(ALIGN_ICONS[value]);
         return { value, node };
     });
     const paintAlign = () => {
@@ -541,11 +555,12 @@ function buildBoxControl(i: number): void {
 
     const remove = button(
         row,
-        `${ICON_BUTTON} text-sm hover:enabled:text-destructive`,
-        "×",
+        ICON_BUTTON,
+        "",
         () => removeBox(i),
         `Remove caption ${n}`
     );
+    remove.innerHTML = icon(ICONS.deleteBin);
     remove.disabled = boxes.length <= 1;
 }
 

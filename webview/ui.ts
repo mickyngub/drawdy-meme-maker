@@ -1,9 +1,20 @@
 export const FOCUS =
-    "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary";
-const LABEL = "text-[10px] tracking-[0.02em] text-muted-foreground";
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const LABEL = "text-label text-fg-muted";
 const INPUT =
-    "h-6 rounded-sm border border-border bg-background py-0.5 text-[11px] focus:border-primary focus:outline-none disabled:opacity-40";
-const SEG_BUTTON = `min-w-0 flex-auto cursor-pointer truncate rounded-sm border border-border px-1.5 py-[3px] text-[10px] text-muted-foreground hover:text-foreground aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground ${FOCUS}`;
+    "h-8 rounded-lg border border-line bg-subtle text-label text-fg transition-colors hover:bg-hover focus:border-line-strong focus:bg-active focus:outline-none focus:ring-1 focus:ring-ring disabled:text-fg-disabled";
+const SEG_BUTTON = `h-7 min-w-0 flex-1 cursor-pointer truncate rounded-md px-2 text-label text-fg-subtle transition-colors hover:text-fg aria-pressed:bg-control aria-pressed:text-fg ${FOCUS}`;
+export const SLIDER =
+    "h-1.5 cursor-pointer appearance-none rounded-full bg-[linear-gradient(to_right,var(--color-accent)_var(--fill),var(--color-control)_var(--fill))] [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-accent [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_1px_2px_rgb(0_0_0/0.3)]";
+
+export function paintFill(input: HTMLInputElement): void {
+    const min = Number(input.min);
+    const span = Number(input.max) - min || 1;
+    input.style.setProperty(
+        "--fill",
+        `${((Number(input.value) - min) / span) * 100}%`
+    );
+}
 
 export function el<K extends keyof HTMLElementTagNameMap>(
     tag: K,
@@ -35,8 +46,8 @@ export function button(
 }
 
 function field(parent: HTMLElement, label: string, forId?: string) {
-    const wrap = el("div", "flex flex-col gap-1", parent);
-    const head = el("div", "flex items-baseline justify-between gap-1.5", wrap);
+    const wrap = el("div", "flex flex-col gap-2", parent);
+    const head = el("div", "flex items-center justify-between gap-2", wrap);
     const text = el(forId ? "label" : "span", LABEL, head);
     text.textContent = label;
     if (forId) (text as HTMLLabelElement).htmlFor = forId;
@@ -63,12 +74,8 @@ export function makeSlider(
     onInput: (value: number) => void
 ): Control<number> {
     const { wrap, head } = field(parent, spec.label);
-    const value = el("span", "text-[10px] tabular-nums", head);
-    const input = el(
-        "input",
-        `h-3.5 w-full cursor-pointer accent-primary ${FOCUS}`,
-        wrap
-    );
+    const value = el("span", "text-fg-subtle tabular-nums", head);
+    const input = el("input", `${SLIDER} w-full ${FOCUS}`, wrap);
     input.type = "range";
     input.min = String(spec.min);
     input.max = String(spec.max);
@@ -76,6 +83,7 @@ export function makeSlider(
     input.setAttribute("aria-label", spec.label);
     const show = (v: number) => {
         value.textContent = spec.unit ? `${v} ${spec.unit}` : String(v);
+        paintFill(input);
     };
     input.value = String(initial);
     show(initial);
@@ -125,7 +133,11 @@ export function makeSegmentedField<T extends string | number>(
     onPick: (value: T) => void
 ): Control<T> & { wrap: HTMLElement; row: HTMLElement } {
     const { wrap } = field(parent, label);
-    const row = el("div", "flex flex-wrap gap-[3px]", wrap);
+    const row = el(
+        "div",
+        "flex h-8 gap-0.5 rounded-lg bg-control-subtle p-0.5",
+        wrap
+    );
     row.setAttribute("role", "group");
     row.setAttribute("aria-label", label);
     const control = makeSegmented(row, options, initial, onPick);
@@ -160,7 +172,7 @@ export function makeSelect(
 ): Control<string> {
     const id = nextId("select");
     const { wrap } = field(parent, label, id);
-    const select = el("select", `${INPUT} px-1`, wrap);
+    const select = el("select", `${INPUT} px-3`, wrap);
     select.id = id;
     for (const [value, caption] of options) {
         const option = el("option", undefined, select);
@@ -185,7 +197,7 @@ export function makeTextInput(
 ): Control<string> & { input: HTMLInputElement; wrap: HTMLElement } {
     const id = nextId("text");
     const { wrap } = field(parent, label, id);
-    const input = el("input", `${INPUT} w-full px-1.5`, wrap);
+    const input = el("input", `${INPUT} w-full px-3`, wrap);
     input.id = id;
     input.type = "text";
     input.placeholder = placeholder;
@@ -208,9 +220,9 @@ export function makeNumberInput(
     initial: number,
     onChange: (value: number) => void
 ): Control<number> & { input: HTMLInputElement } {
-    const wrap = el("label", `flex items-center gap-1.5 ${LABEL}`, parent);
+    const wrap = el("label", `flex items-center gap-2 ${LABEL}`, parent);
     wrap.textContent = label;
-    const input = el("input", `${INPUT} w-16 px-1.5 tabular-nums`, wrap);
+    const input = el("input", `${INPUT} w-16 px-2 tabular-nums`, wrap);
     input.type = "number";
     input.min = String(range.min);
     input.max = String(range.max);
@@ -257,13 +269,13 @@ export function makeSwatchRow(
     nodes: Map<string, HTMLButtonElement>;
 } {
     const { wrap } = field(parent, label);
-    const row = el("div", "flex flex-wrap items-center gap-[5px]", wrap);
+    const row = el("div", "flex flex-wrap items-center gap-2", wrap);
     row.setAttribute("role", "group");
     row.setAttribute("aria-label", label);
     const buttons = swatches.map((swatch) => {
         const node = button(
             row,
-            `size-5 cursor-pointer rounded-full border border-border p-0 [background:var(--swatch)] aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-primary${
+            `size-6 cursor-pointer rounded-full p-0 ring-1 ring-black/10 ring-inset [background:var(--swatch)] aria-pressed:outline-2 aria-pressed:outline-offset-2 aria-pressed:outline-fg${
                 swatch.className ? ` ${swatch.className}` : ""
             }`,
             "",
@@ -293,5 +305,5 @@ export function makeSwatchRow(
 }
 
 export function makeRule(parent: HTMLElement): void {
-    el("div", "my-0.5 h-px flex-none bg-border", parent);
+    el("div", "h-px flex-none bg-divider", parent);
 }
