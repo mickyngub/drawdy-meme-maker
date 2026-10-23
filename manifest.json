@@ -1,7 +1,7 @@
 {
     "driverId": "mickyngub.meme-maker",
     "driverName": "Meme Maker",
-    "driverVersion": "1.0.1",
+    "driverVersion": "1.0.2",
     "description": "Say it with a meme. Search imgflip's 100 most popular templates or upload, drop or paste your own picture, type your captions, drag them into place and click Place on board. Give each caption its own size, white or black lettering and alignment, up to six per meme. Select a placed meme and click Edit selected to change it in place. Made for retros, lessons, slides and team boards.",
     "icon": "icon.png",
     "main": "main.js",
