@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- the panel now uses Drawdy's own colours and font
+- a proper drop zone for your own picture and a roomier template grid
+- the caption editor has ink swatches, aligned icon buttons and a trash icon
+- the place button greys out while there is nothing to place
+
 ## 1.0.0
 
 First public release
